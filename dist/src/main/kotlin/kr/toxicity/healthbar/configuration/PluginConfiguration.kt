@@ -8,6 +8,7 @@ enum class PluginConfiguration(
     private val dir: String
 ) {
     CONFIG("config.yml"),
+    FONT("font.yml"),
     ;
 
     fun create(): YamlConfiguration {

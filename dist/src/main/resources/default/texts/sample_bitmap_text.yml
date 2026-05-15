@@ -1,0 +1,29 @@
+# 文本配置名，layout 中可通过 text: sample_bitmap_text 引用
+sample_bitmap_text:
+  # 文本类型：
+  # - ttf    => 从字体文件生成位图字形
+  # - bitmap => 直接读取你提供的位图字体图片
+  type: "bitmap"
+
+  # chars 下可以定义一个或多个位图字符块
+  # 每个字符块都会生成一组 bitmap provider
+  chars:
+
+    # 这是当前字符块的名字，仅用于配置分组，名字本身可自定义
+    digits:
+
+      # 位图字体图片路径，基于插件数据目录的 assets 文件夹
+      # 这里会读取：plugins/BetterHealthBar/assets/fonts/sample_digits.png
+      file: "fonts/sample_digits.png"
+
+      # 控制这张 bitmap 字体在最终渲染时的垂直对齐
+      # 数值越大，通常越偏上；越小，通常越偏下
+      # 如果视觉方向与你预期相反，只需要继续微调这个值即可
+      ascent: 8
+
+      # 每一行字符串，对应图片中的一行字符映射
+      # 下面这一行表示：
+      # 图片从左到右依次是 0 1 2 3 4 5 6 7 8 9
+      # 如果图片有多行，就在这里继续追加多行字符串
+      codepoints:
+        - "0123456789"

@@ -2,6 +2,7 @@ package kr.toxicity.healthbar.manager
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonPrimitive
+import kr.toxicity.healthbar.configuration.PluginConfiguration
 import kr.toxicity.healthbar.api.manager.TextManager
 import kr.toxicity.healthbar.api.text.HealthBarText
 import kr.toxicity.healthbar.api.text.TextBitmap
@@ -12,6 +13,7 @@ import java.awt.Font
 import java.awt.font.FontRenderContext
 import java.awt.image.BufferedImage
 import java.io.File
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.util.Collections
@@ -55,16 +57,16 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
         textMap.clear()
         textMap["default"] = default
         val fonts = resource.dataFolder.subFolder("fonts")
+        val assets = resource.dataFolder.subFolder("assets")
+        val defaultFontConfig = PluginConfiguration.FONT.create()
+        loadDefaultFont(fonts, defaultFontConfig)
         resource.dataFolder.subFolder("texts").forEachAllYaml { file, s, configurationSection ->
             runWithHandleException("Unable to read this text: $s in ${file.path}") {
-                val font = Font.createFont(Font.TRUETYPE_FONT, File(fonts, configurationSection.getString("file")
-                    .ifNull { "Unable to find 'file' configuration." }
-                    .replace('/', File.separatorChar))
-                    .apply {
-                        if (!exists()) throw RuntimeException("Unable to find this font: $path")
-                    })
-                    .deriveFont(configurationSection.getInt("scale", 16).coerceAtLeast(1).toFloat())
-                val parse = parseFont(file.path, font)
+                val parse = when (configurationSection.getString("type")?.lowercase() ?: "ttf") {
+                    "ttf" -> parseTTF(file.path, fonts, configurationSection)
+                    "bitmap" -> parseBitmap(file.path, assets, configurationSection)
+                    else -> throw RuntimeException("Unsupported text type: ${configurationSection.getString("type")}")
+                }
                 textMap.putSync("text", s) {
                     parse
                 }
@@ -146,7 +148,7 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
                     sb.setLength(0)
                 }
                 synchronized(bitMapList) {
-                    bitMapList.add(TextBitmap(target, array))
+                    bitMapList.add(TextBitmap(target, array, 0))
                 }
             }
             it.value.toList().split(SPLIT_SIZE * SPLIT_SIZE).forEachAsync { list ->
@@ -165,5 +167,86 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
             Collections.unmodifiableList(bitMapList),
             height
         )
+    }
+
+    private fun parseTTF(path: String, fonts: File, section: org.bukkit.configuration.ConfigurationSection): HealthBarTextImpl {
+        val file = File(fonts, section.getString("file")
+            .ifNull { "Unable to find 'file' configuration." }
+            .replace('/', File.separatorChar))
+            .apply {
+                if (!exists()) throw RuntimeException("Unable to find this font: $path")
+            }
+        val font = runCatching {
+            Font.createFont(Font.TRUETYPE_FONT, file)
+        }.getOrElse {
+            throw RuntimeException("Unable to load this font: ${file.path}", it)
+        }.deriveFont(section.getInt("scale", 16).coerceAtLeast(1).toFloat())
+        return parseFont(path, font)
+    }
+
+    private fun parseBitmap(path: String, assets: File, section: org.bukkit.configuration.ConfigurationSection): HealthBarTextImpl {
+        val charsSection = section.getConfigurationSection("chars")
+            .ifNull { "Unable to find 'chars' configuration." }
+        val charWidth = HashMap<Int, Int>()
+        val bitmaps = ArrayList<TextBitmap>()
+        var maxHeight = 0
+        charsSection.getKeys(false).forEach { key ->
+            val charConfig = charsSection.getConfigurationSection(key)
+                .ifNull { "Invalid char config: $key" }
+            val codepointRows = charConfig.getStringList("codepoints").ifEmpty {
+                throw RuntimeException("Codepoints value not set: $key")
+            }
+            val relativeFile = charConfig.getString("file")
+                .ifNull { "File value not set: $key" }
+                .replace('/', File.separatorChar)
+            val image = File(assets, relativeFile)
+                .apply { if (!exists()) throw RuntimeException("Unable to find this asset file: $relativeFile") }
+                .toImage()
+            if (image.height % codepointRows.size != 0) {
+                throw RuntimeException("Image height ${image.height} cannot be divided by ${codepointRows.size}: $relativeFile")
+            }
+            val rowCodepoints = codepointRows.map { row ->
+                row.codePoints().toArray().apply {
+                    if (isEmpty()) throw RuntimeException("Codepoint is empty: $key")
+                    if (image.width % size != 0) throw RuntimeException("Image width ${image.width} cannot be divided by $size: $relativeFile")
+                }
+            }
+            val ascent = charConfig.getInt("ascent", 0)
+            val distinctWidth = rowCodepoints.map { it.size }.distinct()
+            if (distinctWidth.size != 1) throw RuntimeException("Codepoint length mismatch in bitmap: $key")
+            val glyphColumns = distinctWidth.first()
+            val cellWidth = image.width / glyphColumns
+            val cellHeight = image.height / codepointRows.size
+            maxHeight = maxOf(maxHeight, cellHeight)
+            rowCodepoints.forEachIndexed { rowIndex, row ->
+                row.forEachIndexed { columnIndex, codepoint ->
+                    val glyph = image.getSubimage(columnIndex * cellWidth, rowIndex * cellHeight, cellWidth, cellHeight)
+                    charWidth[codepoint] = glyph.removeEmptyWidth()?.let { it.xOffset + it.image.width } ?: 0
+                }
+            }
+            val array = JsonArray().apply {
+                codepointRows.forEach { add(JsonPrimitive(it)) }
+            }
+            bitmaps += TextBitmap(image, array, ascent)
+        }
+        return HealthBarTextImpl(
+            path,
+            Collections.unmodifiableMap(charWidth),
+            Collections.unmodifiableList(bitmaps),
+            maxHeight
+        )
+    }
+
+    private fun loadDefaultFont(fonts: File, config: org.bukkit.configuration.file.YamlConfiguration) {
+        val fileName = config.getString("default-font-name") ?: return
+        val file = File(fonts, fileName.replace('/', File.separatorChar))
+        if (!file.exists()) return
+        val scale = config.getInt("scale", 16).coerceAtLeast(1)
+        val font = runCatching {
+            Font.createFont(Font.TRUETYPE_FONT, file)
+        }.getOrElse {
+            throw RuntimeException("Unable to load default font: ${file.path}", it)
+        }.deriveFont(scale.toFloat())
+        default = parseFont("default", font)
     }
 }

@@ -73,7 +73,8 @@ class TextLayoutImpl(
             val fileName = "${encodeKey(EncodeManager.EncodeNamespace.TEXTURES, "$fileParent/${index + 1}")}.png"
             dataList.add(JsonData(
                 "$NAMESPACE:$fileName",
-                textBitmap.array
+                textBitmap.array,
+                textBitmap.ascent()
             ))
             resource.textures.add(fileName) {
                 textBitmap.image.withOpacity(layer()).toByteArray()
@@ -93,7 +94,7 @@ class TextLayoutImpl(
                         jsonObjectOf(
                             "type" to "bitmap",
                             "file" to data.file,
-                            "ascent" to y.toAscent(),
+                            "ascent" to (y - data.ascent).toAscent(),
                             "height" to height,
                             "chars" to data.chars,
                         )
@@ -154,6 +155,7 @@ class TextLayoutImpl(
 
     private class JsonData(
         val file: String,
-        val chars: JsonArray
+        val chars: JsonArray,
+        val ascent: Int
     )
 }
