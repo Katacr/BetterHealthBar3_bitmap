@@ -63,7 +63,12 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
         resource.dataFolder.subFolder("texts").forEachAllYaml { file, s, configurationSection ->
             runWithHandleException("Unable to read this text: $s in ${file.path}") {
                 val parse = when (configurationSection.getString("type")?.lowercase() ?: "ttf") {
-                    "ttf" -> parseTTF(file.path, fonts, configurationSection)
+                    "ttf" -> parseTTF(
+                        file.path,
+                        fonts,
+                        configurationSection,
+                        configurationSection.getBoolean("merge-default-bitmap", false)
+                    )
                     "bitmap" -> parseBitmap(file.path, assets, configurationSection)
                     else -> throw RuntimeException("Unsupported text type: ${configurationSection.getString("type")}")
                 }
@@ -169,7 +174,12 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
         )
     }
 
-    private fun parseTTF(path: String, fonts: File, section: org.bukkit.configuration.ConfigurationSection): HealthBarTextImpl {
+    private fun parseTTF(
+        path: String,
+        fonts: File,
+        section: org.bukkit.configuration.ConfigurationSection,
+        mergeDefaultBitmap: Boolean
+    ): HealthBarTextImpl {
         val file = File(fonts, section.getString("file")
             .ifNull { "Unable to find 'file' configuration." }
             .replace('/', File.separatorChar))
@@ -181,7 +191,23 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
         }.getOrElse {
             throw RuntimeException("Unable to load this font: ${file.path}", it)
         }.deriveFont(section.getInt("scale", 16).coerceAtLeast(1).toFloat())
-        return parseFont(path, font)
+        val parsed = parseFont(path, font)
+        if (!mergeDefaultBitmap || path == "default") return parsed
+
+        val mergedWidth = HashMap<Int, Int>(parsed.chatWidth())
+        default.chatWidth().forEach { (codepoint, width) ->
+            mergedWidth.putIfAbsent(codepoint, width)
+        }
+
+        return HealthBarTextImpl(
+            path,
+            Collections.unmodifiableMap(mergedWidth),
+            Collections.unmodifiableList(ArrayList<TextBitmap>().apply {
+                addAll(parsed.bitmap())
+                addAll(default.bitmap())
+            }),
+            parsed.height()
+        )
     }
 
     private fun parseBitmap(path: String, assets: File, section: org.bukkit.configuration.ConfigurationSection): HealthBarTextImpl {
