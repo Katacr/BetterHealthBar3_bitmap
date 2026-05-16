@@ -2,6 +2,3 @@ default_text:
   type: "ttf"
   file: "default_font.ttf"
   scale: 16
-  # 是否把默认字体(default)的位图字形作为兜底补进当前文本
-  # 开启后，当当前 TTF 没覆盖某些字符时，可以减少“缺字不显示”的问题
-  merge-default-bitmap: false

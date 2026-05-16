@@ -2,10 +2,10 @@ package kr.toxicity.healthbar.manager
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonPrimitive
-import kr.toxicity.healthbar.configuration.PluginConfiguration
 import kr.toxicity.healthbar.api.manager.TextManager
 import kr.toxicity.healthbar.api.text.HealthBarText
 import kr.toxicity.healthbar.api.text.TextBitmap
+import kr.toxicity.healthbar.configuration.PluginConfiguration
 import kr.toxicity.healthbar.pack.PackResource
 import kr.toxicity.healthbar.text.HealthBarTextImpl
 import kr.toxicity.healthbar.util.*
@@ -13,12 +13,9 @@ import java.awt.Font
 import java.awt.font.FontRenderContext
 import java.awt.image.BufferedImage
 import java.io.File
-import java.io.InputStream
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
-import java.util.Collections
-import java.util.TreeMap
-import java.util.TreeSet
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
@@ -101,7 +98,7 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
         }
     }
 
-    private fun parseFont(path: String, font: Font): HealthBarTextImpl {
+    private fun parseFont(path: String, font: Font, allowedChars: Set<Int>? = null): HealthBarTextImpl {
         val imageMap = TreeMap<Int, MutableSet<CharImage>>()
         val charWidth = HashMap<Int, Int>()
 
@@ -116,9 +113,13 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
             }
         }
 
-        val height = (font.size.toDouble() * 1.4).roundToInt()
+        val height = (font.size.toDouble() * 1.5).roundToInt()
 
-        (0..0x10FFFF).filter {
+        val codepoints = allowedChars ?: (0..0x10FFFF).filter {
+            font.canDisplay(it)
+        }.toSet()
+
+        codepoints.filter {
             font.canDisplay(it)
         }.forEachAsync {
             BufferedImage(font.size, height, BufferedImage.TYPE_INT_ARGB).apply {
@@ -191,7 +192,21 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
         }.getOrElse {
             throw RuntimeException("Unable to load this font: ${file.path}", it)
         }.deriveFont(section.getInt("scale", 16).coerceAtLeast(1).toFloat())
-        val parsed = parseFont(path, font)
+        val allowedChars = run {
+            val list = section.getStringList("chars")
+            if (list.isNotEmpty()) {
+                LinkedHashSet<Int>().apply {
+                    list.forEach { s -> s.codePoints().forEach { add(it) } }
+                }
+            } else {
+                section.getString("chars")?.let { s ->
+                    LinkedHashSet<Int>().apply {
+                        s.codePoints().forEach { add(it) }
+                    }
+                }
+            }
+        }
+        val parsed = parseFont(path, font, allowedChars)
         if (!mergeDefaultBitmap || path == "default") return parsed
 
         val mergedWidth = HashMap<Int, Int>(parsed.chatWidth())

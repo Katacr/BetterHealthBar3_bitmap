@@ -35,14 +35,27 @@ class TextLayoutImpl(
     private val property = section.getConfigurationSection("properties")?.let {
         PlaceholderOption.of(it)
     } ?: PlaceholderOption.EMPTY
-    private val text = section.getString("text").ifNull { "Unable to find 'text' configuration." }.run {
-        TextManagerImpl.text(this).ifNull { "Unable to find this text: $this" }
+    private val texts: List<kr.toxicity.healthbar.api.text.HealthBarText> = run {
+        val list = section.getStringList("text")
+        if (list.isNotEmpty()) {
+            list.map { name ->
+                TextManagerImpl.text(name).ifNull { "Unable to find this text: $name" }
+            }
+        } else {
+            val single = section.getString("text").ifNull { "Unable to find 'text' configuration." }
+            listOf(TextManagerImpl.text(single).ifNull { "Unable to find this text: $single" })
+        }
     }
-    private val height = (text.height().toDouble() * scale()).roundToInt().toHeight()
+    private val primaryText = texts.first()
+    private val height = (primaryText.height().toDouble() * scale()).roundToInt().toHeight()
     private val textWidth = Collections.unmodifiableMap(HashMap<Int, Int>().apply {
-        val div = height.toDouble() / text.height().toDouble()
-        text.chatWidth().forEach {
-            put(it.key, (it.value * div).roundToInt())
+        val div = height.toDouble() / primaryText.height().toDouble()
+        // 按优先级合并：先出现的字体优先
+        for (text in texts.asReversed()) {
+            val textDiv = height.toDouble() / text.height().toDouble()
+            text.chatWidth().forEach {
+                put(it.key, (it.value * textDiv).roundToInt())
+            }
         }
     })
     private val align = section.getString("align").ifNull { "Unable to find 'align' command." }.run {
@@ -69,15 +82,19 @@ class TextLayoutImpl(
     fun build(resource: PackResource, count: Int) {
         val dataList = ArrayList<JsonData>()
         val fileParent = "${parent.name}/text/${layer()}"
-        text.bitmap().forEachIndexed { index, textBitmap ->
-            val fileName = "${encodeKey(EncodeManager.EncodeNamespace.TEXTURES, "$fileParent/${index + 1}")}.png"
-            dataList.add(JsonData(
-                "$NAMESPACE:$fileName",
-                textBitmap.array,
-                textBitmap.ascent()
-            ))
-            resource.textures.add(fileName) {
-                textBitmap.image.withOpacity(layer()).toByteArray()
+        var bitmapIndex = 0
+        for (text in texts) {
+            text.bitmap().forEach { textBitmap ->
+                bitmapIndex++
+                val fileName = "${encodeKey(EncodeManager.EncodeNamespace.TEXTURES, "$fileParent/$bitmapIndex")}.png"
+                dataList.add(JsonData(
+                    "$NAMESPACE:$fileName",
+                    textBitmap.array,
+                    textBitmap.ascent()
+                ))
+                resource.textures.add(fileName) {
+                    textBitmap.image.withOpacity(layer()).toByteArray()
+                }
             }
         }
 

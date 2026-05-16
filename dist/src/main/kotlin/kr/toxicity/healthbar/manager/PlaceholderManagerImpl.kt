@@ -5,16 +5,15 @@ import kr.toxicity.healthbar.api.event.HealthBarCreateEvent
 import kr.toxicity.healthbar.api.manager.PlaceholderManager
 import kr.toxicity.healthbar.api.placeholder.PlaceholderContainer
 import kr.toxicity.healthbar.pack.PackResource
-import kr.toxicity.healthbar.util.ATTRIBUTE_MAX_HEALTH
-import kr.toxicity.healthbar.util.armor
-import kr.toxicity.healthbar.util.placeholder
-import kr.toxicity.healthbar.util.warn
+import kr.toxicity.healthbar.util.*
 import org.bukkit.NamespacedKey
 import org.bukkit.Registry
 import org.bukkit.entity.Player
 import java.util.function.Function
 
 object PlaceholderManagerImpl : PlaceholderManager, BetterHealthBerManager {
+
+    private var customNameMap: Map<String, String> = emptyMap()
 
     override fun start() {
         PlaceholderContainer.NUMBER.run {
@@ -39,7 +38,8 @@ object PlaceholderManagerImpl : PlaceholderManager, BetterHealthBerManager {
                 e.entity.entity().type.toString().lowercase()
             }
             addPlaceholder("entity_name") { e: HealthBarCreateEvent ->
-                e.entity.entity().name
+                val entity = e.entity.entity()
+                customNameMap[entity.type.name] ?: entity.name
             }
         }
         PlaceholderContainer.BOOL.run {
@@ -68,6 +68,22 @@ object PlaceholderManagerImpl : PlaceholderManager, BetterHealthBerManager {
     }
 
     override fun reload(resource: PackResource) {
-
+        val file = java.io.File(DATA_FOLDER, "custom-name.yml")
+        if (!file.exists()) {
+            PLUGIN.saveResource("custom-name.yml", false)
+        }
+        val yaml = file.toYaml()
+        val entitySection = yaml.getConfigurationSection("Entity")
+        customNameMap = if (entitySection != null) {
+            HashMap<String, String>().apply {
+                entitySection.getKeys(false).forEach { key ->
+                    entitySection.getString(key)?.let { value ->
+                        put(key.uppercase(), value)
+                    }
+                }
+            }
+        } else {
+            emptyMap()
+        }
     }
 }

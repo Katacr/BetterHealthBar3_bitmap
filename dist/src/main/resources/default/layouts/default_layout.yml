@@ -39,7 +39,11 @@ default_layout:
           operation: ">="
   texts:
     1:
-      text: default_text
+      # 支持单个字体（字符串）或多个字体（列表）
+      # 列表模式下，优先级从上到下，找不到字符时依次向下查找
+      text:
+        - default_text
+        - HYPixel
       pattern: "[entity_name]"
       align: center
       x: 60
