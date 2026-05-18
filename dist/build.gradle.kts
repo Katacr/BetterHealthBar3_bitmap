@@ -23,7 +23,6 @@ dependencies {
     shade(project(":nms:v1_21_R5", configuration = "reobf")) { isTransitive = false }
     shade(project(":nms:v1_21_R6", configuration = "reobf")) { isTransitive = false }
     shade(project(":nms:v1_21_R7", configuration = "reobf")) { isTransitive = false }
-    shade(project(":nms:v26_R1")) { isTransitive = false }
 
     compileOnly("io.lumine:Mythic-Dist:5.11.2")
     compileOnly("io.github.arcaneplugins:levelledmobs-plugin:4.0.3.1")

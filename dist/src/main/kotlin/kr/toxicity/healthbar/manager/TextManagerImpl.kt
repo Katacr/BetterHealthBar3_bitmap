@@ -17,11 +17,11 @@ import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.roundToInt
 
 object TextManagerImpl : TextManager, BetterHealthBerManager {
 
     private val frc = FontRenderContext(null, true, true)
+    private val frcNoAA = FontRenderContext(null, false, false)
     private const val SPLIT_SIZE = 16
 
     private lateinit var default: HealthBarTextImpl
@@ -98,37 +98,117 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
         }
     }
 
-    private fun parseFont(path: String, font: Font, allowedChars: Set<Int>? = null): HealthBarTextImpl {
+    private class RenderedGlyph(
+        val char: Int,
+        val image: BufferedImage,
+        val yTop: Int,
+        val yBottom: Int
+    )
+
+    private fun parseFont(path: String, font: Font, allowedChars: Set<Int>? = null, square: Boolean = false, cellSize: Int = -1, antiAlias: Boolean = true): HealthBarTextImpl {
         val imageMap = TreeMap<Int, MutableSet<CharImage>>()
         val charWidth = HashMap<Int, Int>()
-
-        fun register(char: Int, image: BufferedImage) {
-            synchronized(imageMap) {
-                imageMap.computeIfAbsent(image.width) {
-                    TreeSet()
-                }.add(CharImage(char, image))
-            }
-            synchronized(charWidth) {
-                charWidth[char] = image.width
-            }
-        }
-
-        val height = (font.size.toDouble() * 1.5).roundToInt()
 
         val codepoints = allowedChars ?: (0..0x10FFFF).filter {
             font.canDisplay(it)
         }.toSet()
 
+        val renderedGlyphs = Collections.synchronizedList(ArrayList<RenderedGlyph>())
+
         codepoints.filter {
             font.canDisplay(it)
         }.forEachAsync {
-            BufferedImage(font.size, height, BufferedImage.TYPE_INT_ARGB).apply {
+            val canvasSize = font.size * 2
+            val renderFrc = if (antiAlias) frc else frcNoAA
+            val rendered = BufferedImage(canvasSize, canvasSize, BufferedImage.TYPE_INT_ARGB).apply {
                 createGraphics().run {
-                    fill(font.createGlyphVector(frc, it.parseChar()).getOutline(0F, font.size.toFloat()))
+                    if (!antiAlias) {
+                        setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_OFF)
+                        setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING, java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_OFF)
+                    }
+                    val gv = font.createGlyphVector(renderFrc, it.parseChar())
+                    drawGlyphVector(gv, 0F, font.size.toFloat())
                     dispose()
                 }
-            }.removeEmptyWidth()?.let { image ->
-                register(it, image.image)
+            }
+            // Find vertical and horizontal bounds
+            var yTop = rendered.height
+            var yBottom = 0
+            var xLeft = rendered.width
+            var xRight = 0
+            for (x in 0..<rendered.width) {
+                for (y in 0..<rendered.height) {
+                    if ((rendered.getRGB(x, y) and -0x1000000) ushr 24 > 0) {
+                        if (y < yTop) yTop = y
+                        if (y > yBottom) yBottom = y
+                        if (x < xLeft) xLeft = x
+                        if (x > xRight) xRight = x
+                    }
+                }
+            }
+            if (xLeft <= xRight && yTop <= yBottom) {
+                val cropped = rendered.getSubimage(xLeft, 0, xRight - xLeft + 1, rendered.height)
+                renderedGlyphs.add(RenderedGlyph(it, cropped, yTop, yBottom))
+            }
+        }
+
+        if (renderedGlyphs.isEmpty()) {
+            return HealthBarTextImpl(path, Collections.unmodifiableMap(charWidth), emptyList(), 0)
+        }
+
+        // Use fullwidth characters to determine the primary vertical bounds
+        val fullWidthGlyphs = renderedGlyphs.filter { isFullWidth(it.char) }
+        val referenceGlyphs = fullWidthGlyphs.ifEmpty { renderedGlyphs }
+        val globalTop = referenceGlyphs.minOf { it.yTop }
+        val globalBottom = referenceGlyphs.maxOf { it.yBottom }
+        val naturalHeight = globalBottom - globalTop + 1
+        val height = if (cellSize > 0) cellSize else naturalHeight
+
+        // Crop each glyph to the unified vertical range
+        renderedGlyphs.forEach { glyph ->
+            val cropHeight = (globalBottom - globalTop + 1).coerceAtMost(glyph.image.height - globalTop)
+            val img = glyph.image.getSubimage(0, globalTop, glyph.image.width, cropHeight)
+            val finalImg = if (img.height != height) {
+                BufferedImage(img.width, height, BufferedImage.TYPE_INT_ARGB).apply {
+                    createGraphics().run {
+                        drawImage(img, 0, 0, null)
+                        dispose()
+                    }
+                }
+            } else img
+
+            synchronized(imageMap) {
+                imageMap.computeIfAbsent(finalImg.width) { TreeSet() }.add(CharImage(glyph.char, finalImg))
+            }
+            synchronized(charWidth) {
+                charWidth[glyph.char] = finalImg.width
+            }
+        }
+
+        if (square && height > 0) {
+            val squareMap = TreeMap<Int, MutableSet<CharImage>>()
+            imageMap.forEach { (_, chars) ->
+                chars.forEach { charImage ->
+                    val img = charImage.image
+                    if (isFullWidth(charImage.char)) {
+                        val squareImg = BufferedImage(height, height, BufferedImage.TYPE_INT_ARGB)
+                        squareImg.createGraphics().run {
+                            val xOff = (height - img.width) / 2
+                            drawImage(img, xOff, 0, null)
+                            dispose()
+                        }
+                        squareMap.computeIfAbsent(height) { TreeSet() }.add(CharImage(charImage.char, squareImg))
+                    } else {
+                        squareMap.computeIfAbsent(img.width) { TreeSet() }.add(charImage)
+                    }
+                }
+            }
+            imageMap.clear()
+            imageMap.putAll(squareMap)
+            charWidth.keys.forEach { codepoint ->
+                if (isFullWidth(codepoint)) {
+                    charWidth[codepoint] = height
+                }
             }
         }
 
@@ -206,7 +286,10 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
                 }
             }
         }
-        val parsed = parseFont(path, font, allowedChars)
+        val square = section.getBoolean("square", false)
+        val cellSize = section.getInt("cell-size", -1)
+        val antiAlias = section.getBoolean("anti-alias", true)
+        val parsed = parseFont(path, font, allowedChars, square, cellSize, antiAlias)
         if (!mergeDefaultBitmap || path == "default") return parsed
 
         val mergedWidth = HashMap<Int, Int>(parsed.chatWidth())
@@ -289,5 +372,24 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
             throw RuntimeException("Unable to load default font: ${file.path}", it)
         }.deriveFont(scale.toFloat())
         default = parseFont("default", font)
+    }
+
+    private fun isFullWidth(codepoint: Int): Boolean {
+        return when (codepoint) {
+            in 0x1100..0x115F -> true   // Hangul Jamo
+            in 0x2E80..0x303E -> true   // CJK Radicals, Kangxi Radicals, CJK Symbols
+            in 0x3041..0x33BF -> true   // Hiragana, Katakana, CJK Compatibility
+            in 0x3400..0x4DBF -> true   // CJK Unified Ideographs Extension A
+            in 0x4E00..0x9FFF -> true   // CJK Unified Ideographs
+            in 0xA000..0xA4CF -> true   // Yi Syllables, Yi Radicals
+            in 0xAC00..0xD7AF -> true   // Hangul Syllables
+            in 0xF900..0xFAFF -> true   // CJK Compatibility Ideographs
+            in 0xFE30..0xFE6F -> true   // CJK Compatibility Forms, Small Form Variants
+            in 0xFF01..0xFF60 -> true   // Fullwidth Forms
+            in 0xFFE0..0xFFE6 -> true   // Fullwidth Signs
+            in 0x20000..0x2FA1F -> true // CJK Extensions B-F, Compatibility Supplement
+            in 0x30000..0x3134F -> true // CJK Extension G
+            else -> false
+        }
     }
 }

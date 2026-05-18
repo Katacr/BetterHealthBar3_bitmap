@@ -1,15 +1,18 @@
 HYPixel:
   type: "ttf"
-  file: "HYPixel9px.ttf"
-  scale: 16
-
+  file: "HYPixel9px.ttf"  # 字体文件名
+  scale: 11  # 字体渲染大小
+  square: true # 全宽字符是否使用正方形且水平居中构建
+  cell-size: 9 # 强行指定正方形高度
+  anti-alias: false # 抗锯齿开关，像素字体应关闭
+  merge-default-bitmap: false # 合并默认字体 bitmap
   # 支持字符串或列表格式，列表更易于分类管理
   # 重复字符会自动去重
   chars:
     - '悦灵犰狳美西螈蝙蝠蜜蜂骆驼猫鸡鳕鱼牛海豚驴狐狸青蛙发光鱿山羊马铁傀儡'
     - '驼哞菇骡豹熊鹦鹉猪北极河豚兔子鲑骷髅嗅探兽雪炽足蝌蚪行商热带龟村民'
     - '流浪人狼僵尸洞穴蜘蛛末影烈焰沼骸旋风嘎枝苦力怕溺远古守卫者螨唤魔恶魂'
-    - '疣壳岩浆怪幻翼蛮兵掠夺劫潜贝蠹虫史莱姆恼鬼道士监女巫凋龙玩家'
-    - '1234567890'
+    - '疣壳岩浆怪幻翼蛮兵掠夺劫潜贝蠹虫史莱姆恼鬼道士监女巫凋龙玩家我的世界'
+    - '1234567890!@#$%^&*()_+{}|:"<>?,./;[]\=-，。；【】（）￥！《》？'
     - 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
     - 'abcdefghijklmnopqrstuvwxyz'
