@@ -44,7 +44,7 @@ default_layout:
       text:
         - default_text
         - HYPixel
-      pattern: "[entity_name]"
+      pattern: "[entity_name] | [health]/[max_health]"
       align: center
       x: 60
       y: 20

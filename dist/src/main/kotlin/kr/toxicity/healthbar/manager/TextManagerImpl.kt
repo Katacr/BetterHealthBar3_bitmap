@@ -288,7 +288,7 @@ object TextManagerImpl : TextManager, BetterHealthBerManager {
         }
         val square = section.getBoolean("square", false)
         val cellSize = section.getInt("cell-size", -1)
-        val antiAlias = section.getBoolean("anti-alias", true)
+        val antiAlias = section.getBoolean("anti-alias", false)
         val parsed = parseFont(path, font, allowedChars, square, cellSize, antiAlias)
         if (!mergeDefaultBitmap || path == "default") return parsed
 
